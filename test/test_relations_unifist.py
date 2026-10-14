@@ -1,6 +1,9 @@
 import time
 import unittest
 
+import relations
+import relations.unittest
+
 import relations_unifist
 
 
@@ -125,3 +128,333 @@ class TestJournal(unittest.TestCase):
         before = time.time_ns() // 1000
         journal = relations_unifist.Journal(resource_id="abc", what={"create": {}})
         self.assertTrue(before <= journal.when <= time.time_ns() // 1000)
+
+
+class Base(relations_unifist.UnifistModel):
+
+    SOURCE = "local"
+
+
+class Thing(Base):
+
+    id = str
+    version = int, 1
+
+
+class Other(Base):
+
+    id = str
+    version = int, 1
+
+
+class Third(Base):
+
+    id = str
+    version = int, 1
+
+
+class Page(Base):
+
+    id = str
+    version = int, 1
+    title = str
+
+    SLUG = "title"
+
+
+class Person(Base):
+
+    id = str
+    version = int, 1
+    first = str
+    last = str
+
+    SLUG = ["first", "last"]
+
+
+class Item(Base):
+
+    id = str
+    version = int, 1
+    name = str
+
+
+class IntId(relations_unifist.UnifistModel):
+
+    id = int
+    version = int, 1
+
+
+class NoVersion(relations_unifist.UnifistModel):
+
+    id = str
+    title = str
+
+
+class BadSlug(relations_unifist.UnifistModel):
+
+    id = str
+    version = int, 1
+    title = str
+
+    SLUG = "nope"
+
+
+class BadSlugs(relations_unifist.UnifistModel):
+
+    id = str
+    version = int, 1
+    title = str
+
+    SLUG = ["title", "nope"]
+
+
+class TestUnifistModel(unittest.TestCase):
+
+    maxDiff = None
+
+    def setUp(self):
+
+        self.unifist = relations.unittest.MockSource("unifist")
+        self.local = relations.unittest.MockSource("local")
+
+        # The unum is set once, on the base, when an app starts, and every model sees it
+
+        relations_unifist.UnifistModel.UNUM = "home"
+
+    def tearDown(self):
+
+        relations_unifist.UnifistModel.UNUM = None
+        relations_unifist.UnifistModel.JOURNAL = True
+
+    def test_define(self):
+
+        # The unum is set on the base and inherited, the slug is set on the model, and it's none by default
+
+        self.assertEqual(Thing.UNUM, "home")
+        self.assertEqual(Page.SLUG, "title")
+        self.assertIsNone(Thing.SLUG)
+        self.assertIsNone(relations_unifist.UnifistModel.SLUG)
+
+    def test___init__(self):
+
+        # Fine with an id string, a version int, and a SLUG that is a field or a list of them
+
+        self.assertEqual(Thing().version, 1)
+        self.assertEqual(Page(title="Hello").title, "Hello")
+        self.assertEqual(Person(first="Gaffer", last="Fitch").last, "Fitch")
+
+        # The id has to be a str and there has to be a version
+
+        with self.assertRaisesRegex(relations.ModelError, "int_id: id has to be a str field"):
+            IntId()
+
+        with self.assertRaisesRegex(relations.ModelError, "no_version: version has to be an int field"):
+            NoVersion()
+
+        # A SLUG has to name fields the model has
+
+        with self.assertRaisesRegex(relations.ModelError, "bad_slug: SLUG field nope not found"):
+            BadSlug()
+
+        with self.assertRaisesRegex(relations.ModelError, "bad_slugs: SLUG field nope not found"):
+            BadSlugs()
+
+    def test_generate_id(self):
+
+        # With no SLUG it's seq.model.source.unum, the sequence kept in the unifist source
+
+        self.assertEqual(Thing().generate_id(), "1.thing.local.home")
+        self.assertEqual(self.unifist.data["sequence"], {1: {"id": 1, "unum": "home", "source": "local", "model": "thing", "current": 1}})
+        self.assertEqual(Thing().generate_id(), "2.thing.local.home")
+        self.assertEqual(self.unifist.data["sequence"][1]["current"], 2)
+
+        # Another model is another counter
+
+        self.assertEqual(Other().generate_id(), "1.other.local.home")
+        self.assertEqual(len(self.unifist.data["sequence"]), 2)
+
+        # If someone else took one between reading and updating, it reads again
+
+        update = self.unifist.update
+        taken = []
+
+        def racing(model):
+            if not taken:
+                taken.append(True)
+                self.unifist.data["sequence"][1]["current"] += 1
+            return update(model)
+
+        self.unifist.update = racing
+
+        self.assertEqual(Thing().generate_id(), "4.thing.local.home")
+        self.assertEqual(self.unifist.data["sequence"][1]["current"], 4)
+
+        # Or if someone else inserted the counter first
+
+        self.unifist.update = update
+        create = self.unifist.create
+
+        def inserting(model):
+            self.unifist.create = create
+            relations_unifist.Sequence(unum="home", source="local", model="third", current=9).create()
+            return create(model)
+
+        self.unifist.create = inserting
+
+        self.assertEqual(Third().generate_id(), "10.third.local.home")
+        self.assertEqual(self.unifist.data["sequence"][3]["current"], 10)
+
+        # With a SLUG it's the slug of that field, kept in the unifist source too
+
+        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world.page.local.home")
+        self.assertEqual(self.unifist.data["slug"], {1: {"id": 1, "unum": "home", "source": "local", "model": "page", "current": "hello-world"}})
+
+        # The same slug again adds -1, -2 and so on until it fits
+
+        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world-1.page.local.home")
+        self.assertEqual(Page(title="hello world").generate_id(), "hello-world-2.page.local.home")
+        self.assertEqual(len(self.unifist.data["slug"]), 3)
+
+        # A list of fields makes one slug from all of them
+
+        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch.person.local.home")
+
+        # Another model has its own slugs, so the same one doesn't clash
+
+        self.assertEqual(Page(title="Gaffer Fitch").generate_id(), "gaffer-fitch.page.local.home")
+        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch-1.person.local.home")
+
+        # Nothing to make a slug from
+
+        with self.assertRaisesRegex(ValueError, "nothing to make a slug from"):
+            Page(title="!!!").generate_id()
+
+    def test_pre(self):
+
+        # A new record gets its id from generate_id, and starts at version 1
+
+        item = Item(name="a").create()
+
+        self.assertEqual(item.id, "1.item.local.home")
+        self.assertEqual(item.version, 1)
+
+        # Every update that changes something bumps the version, one that changes nothing doesn't
+
+        item.update()
+
+        self.assertEqual(item.version, 1)
+
+        item.name = "b"
+        item.update()
+
+        self.assertEqual(item.version, 2)
+
+        item.name = "c"
+        item.update()
+
+        self.assertEqual(item.version, 3)
+
+        # A bulk create gives every record its own id
+
+        Item.bulk().add(name="d").add(name="e").create()
+
+        self.assertEqual(sorted(self.local.data["item"]), ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
+
+        # Retrieving is left alone
+
+        self.assertEqual(Item.one("1.item.local.home").retrieve().name, "c")
+
+        # Changing or deleting by a query isn't supported yet, only one record at a time
+
+        with self.assertRaisesRegex(relations.ModelError, "item: update by query isn't supported yet"):
+            Item.many(name="c").set(name="q").update()
+
+        with self.assertRaisesRegex(relations.ModelError, "item: delete by query isn't supported yet"):
+            Item.many(name="c").delete()
+
+        self.assertEqual(Item.one("1.item.local.home").retrieve().name, "c")
+
+    def test_post(self):
+
+        def journal():
+            return sorted(self.unifist.data["journal"].values(), key=lambda row: row["id"])
+
+        # A create is journaled, by the id, with when in microseconds, and the app (source) and block (model) it was in
+
+        before = relations_unifist.microseconds()
+        item = Item(name="a").create()
+        after = relations_unifist.microseconds()
+
+        self.assertEqual(len(journal()), 1)
+        self.assertEqual(journal()[0]["resource_id"], "1.item.local.home")
+        self.assertEqual(journal()[0]["what"], {
+            "action": "create",
+            "app": "local",
+            "block": "item",
+            "id": "1.item.local.home",
+            "after": {"id": "1.item.local.home", "version": 1, "name": "a"}
+        })
+        self.assertTrue(before <= journal()[0]["when"] <= after)
+
+        # An update is journaled with the whole record before and after, the version included
+
+        item.name = "b"
+        item.update()
+
+        self.assertEqual(len(journal()), 2)
+        self.assertEqual(journal()[1]["resource_id"], "1.item.local.home")
+        self.assertEqual(journal()[1]["what"], {
+            "action": "update",
+            "app": "local",
+            "block": "item",
+            "id": "1.item.local.home",
+            "before": {"id": "1.item.local.home", "version": 1, "name": "a"},
+            "after": {"id": "1.item.local.home", "version": 2, "name": "b"}
+        })
+        self.assertTrue(journal()[0]["when"] <= journal()[1]["when"])
+
+        # An update that changes nothing isn't journaled
+
+        item.update()
+
+        self.assertEqual(len(journal()), 2)
+
+        # A delete is journaled with the whole record it removed
+
+        item.delete()
+
+        self.assertEqual(len(journal()), 3)
+        self.assertEqual(journal()[2]["resource_id"], "1.item.local.home")
+        self.assertEqual(journal()[2]["what"], {
+            "action": "delete",
+            "app": "local",
+            "block": "item",
+            "id": "1.item.local.home",
+            "before": {"id": "1.item.local.home", "version": 2, "name": "b"}
+        })
+
+        # A bulk create is journaled one record at a time
+
+        Item.bulk().add(name="c").add(name="d").create()
+
+        self.assertEqual([row["resource_id"] for row in journal()[3:]], ["2.item.local.home", "3.item.local.home"])
+
+        # Retrieving isn't journaled
+
+        Item.one("2.item.local.home").retrieve()
+
+        self.assertEqual(len(journal()), 5)
+
+        # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, but ids and versions still happen
+
+        relations_unifist.UnifistModel.JOURNAL = False
+
+        quiet = Item(name="e").create()
+        quiet.name = "f"
+        quiet.update()
+        quiet.delete()
+
+        self.assertEqual(quiet.id, "4.item.local.home")
+        self.assertEqual(quiet.version, 2)
+        self.assertEqual(len(journal()), 5)

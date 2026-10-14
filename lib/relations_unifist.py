@@ -45,7 +45,16 @@ def microseconds():
     return time.time_ns() // 1000
 
 
-class Sequence(relations.Model):
+class UnifistBase(relations.Model):
+    """
+    The base of the tables kept in the Unifist source, whose name is set here, at run time, by whatever
+    uses them (the default is unifist)
+    """
+
+    SOURCE = "unifist"
+
+
+class Sequence(UnifistBase):
     """
     A counter, one per unum, source and model. Taking n ids moves current up by n
     """
@@ -60,7 +69,7 @@ class Sequence(relations.Model):
     UNIQUE = ["unum", "source", "model"]
 
 
-class Slug(relations.Model):
+class Slug(UnifistBase):
     """
     A slug that is taken, one row per slug for a unum, source and model
     """
@@ -75,7 +84,7 @@ class Slug(relations.Model):
     UNIQUE = ["unum", "source", "model", "current"]
 
 
-class Journal(relations.Model):
+class Journal(UnifistBase):
     """
     Every change, what was created, or the before and after of an update, or what a delete removed
     """
@@ -88,3 +97,162 @@ class Journal(relations.Model):
     TITLES = ["resource_id"]
     UNIQUE = {}
     INDEX = ["resource_id"]
+
+
+class UnifistModel(relations.Model):
+    """
+    The base of models whose ids come from a Unifist source, a regular source holding the sequence, slug and
+    journal tables. UNIFIST names that source and UNUM names the unum, both set on the model like SOURCE is
+    """
+
+    UNIFIST = None  # Name of the Unifist source
+    UNUM = None     # Name of the unum
+    SLUG = None     # Whether to use other fields for id
+    JOURNAL = True  # Whether or not to Journal
+
+    _journaling = None  # What pre keeps for post to journal
+
+    def __init__(self, *args, **kwargs):
+        """
+        Checks the model has what ids and versions need, then does what any model does
+        """
+
+        identity = self.thy()
+        names = identity._fields._names # pylint: disable=protected-access
+
+        if "id" not in names or names["id"].kind is not str:
+            raise relations.ModelError(identity, "id has to be a str field")
+
+        if "version" not in names or names["version"].kind is not int:
+            raise relations.ModelError(identity, "version has to be an int field")
+
+        if self.SLUG is not None:
+            for name in self.SLUG if isinstance(self.SLUG, list) else [self.SLUG]:
+                if name not in names:
+                    raise relations.ModelError(identity, f"SLUG field {name} not found")
+
+        super().__init__(*args, **kwargs)
+
+    def generate_id(self):
+        """
+        Makes the id for a new record: current.model.source.unum. Without a SLUG the current is the next
+        number from the Sequence, which moves up only where it still holds what was just read, so nothing is
+        given out twice, and is inserted the first time. With a SLUG the current is the slug of the field, or
+        the list of fields, tried in the Slug table, with -1, -2 and so on added until one isn't taken. Either
+        race that's lost is tried again
+        """
+
+        current = None
+
+        if self.SLUG is None:
+
+            while True:
+
+                found = Sequence.one(unum=self.UNUM, source=self.SOURCE, model=self.NAME).retrieve(False)
+
+                if not found:
+
+                    current = 1
+
+                    try:
+
+                        Sequence(unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=current).create()
+                        break
+
+                    except relations.UniqueError:
+                        continue
+
+                current = found.current + 1
+
+                if Sequence.many(
+                    unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=found.current
+                ).set(
+                    current=current
+                ).update():
+                    break
+
+        else:
+
+            fields = self.SLUG if isinstance(self.SLUG, list) else [self.SLUG]
+
+            slug = current = slugify([self[field] for field in fields])
+            tries = 0
+
+            while True:
+
+                try:
+                    current = Slug(
+                        unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=current
+                    ).create().current
+                    break
+                except relations.UniqueError:
+                    tries += 1
+                    current = f"{slug}-{tries}"
+                    continue
+
+        return f"{current}.{self.NAME}.{self.SOURCE}.{self.UNUM}"
+
+    def journal(self, action, model, before=None):
+        """
+        Writes a Journal row for a record that was created, updated or deleted, with the app (source) and
+        block (model) it was in, the id, and the whole record before and after as the action makes sense
+        """
+
+        what = {
+            "action": action,
+            "app": model.SOURCE,
+            "block": model.NAME,
+            "id": model.id
+        }
+
+        if action == "create":
+            what["after"] = model.export()
+        elif action == "update":
+            what["before"] = before
+            what["after"] = model.export()
+        else:
+            what["before"] = before
+
+        Journal(resource_id=model.id, what=what).create()
+
+    def pre(self, action, *args, **kwargs):
+        """
+        Gives new records their ids, bumps the version of records that changed, and keeps what post
+        needs to journal. Changing or deleting by a query isn't supported yet, only one record at a time
+        """
+
+        self._journaling = []
+
+        if action in ["update", "delete"] and self._action == "retrieve":
+            raise relations.ModelError(self, f"{action} by query isn't supported yet")
+
+        for model in self._each("create" if action == "create" else "update"):
+
+            if action == "create":
+
+                if model.id is None:
+                    model.id = model.generate_id()
+
+                self._journaling.append((model, None))
+
+            elif action == "update" and any(field.delta() for field in model._record._order): # pylint: disable=protected-access
+
+                self._journaling.append((model, {field.name: field.original for field in model._record._order})) # pylint: disable=protected-access
+                model.version = model.version + 1
+
+            elif action == "delete":
+
+                self._journaling.append((model, model.export()))
+
+    def post(self, action, result, *args, **kwargs):
+        """
+        Journals what pre kept, if the model is to be journaled
+        """
+
+        if self.JOURNAL:
+            for model, before in self._journaling:
+                self.journal(action, model, before)
+
+        self._journaling = []
+
+        return result
