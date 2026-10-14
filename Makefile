@@ -1,5 +1,5 @@
 ACCOUNT=gaf3
-IMAGE=relations-unifist
+IMAGE=python-relations-unifist
 VERSION?=$(shell cat VERSION)
 DEBUG_PORT=5678
 TTY=$(shell if tty -s; then echo "-it"; fi)

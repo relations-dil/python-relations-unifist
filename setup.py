@@ -22,7 +22,7 @@ setup(
     install_requires=[
         'relations-dil>=0.6.18'
     ],
-    url="https://github.com/relations-dil/relations-unifist",
+    url="https://github.com/relations-dil/python-relations-unifist",
     author="Gaffer Fitch",
     author_email="relations@gaf3.com",
     description="Relations Models for local generation ready for global adressing",

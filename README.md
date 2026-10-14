@@ -1,4 +1,4 @@
-# relations-unifist
+# python-relations-unifist
 
 Relations Models for local generation ready for global adressing
 
