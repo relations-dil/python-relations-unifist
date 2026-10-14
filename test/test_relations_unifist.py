@@ -1,3 +1,4 @@
+import time
 import unittest
 
 import relations_unifist
@@ -51,3 +52,76 @@ class TestModule(unittest.TestCase):
         for length in [0, 256, -1]:
             with self.assertRaisesRegex(ValueError, "length has to be from 1 to 255"):
                 relations_unifist.slugify("abc", length=length)
+
+    def test_microseconds(self):
+
+        before = time.time_ns() // 1000
+        now = relations_unifist.microseconds()
+        after = time.time_ns() // 1000
+
+        self.assertIsInstance(now, int)
+        self.assertTrue(before <= now <= after)
+
+
+class TestSequence(unittest.TestCase):
+
+    maxDiff = None
+
+    def test_define(self):
+
+        definition = relations_unifist.Sequence.thy().define()
+        fields = {field["name"]: field for field in definition["fields"]}
+
+        self.assertEqual(definition["name"], "sequence")
+        self.assertEqual(definition["id"], "id")
+        self.assertEqual([field["name"] for field in definition["fields"]], ["id", "unum", "source", "model", "current"])
+        self.assertEqual([field["kind"] for field in definition["fields"]], ["int", "str", "str", "str", "int"])
+        self.assertEqual(definition["unique"], {"unum-source-model": ["unum", "source", "model"]})
+        self.assertFalse(fields["unum"]["none"])
+        self.assertFalse(fields["source"]["none"])
+        self.assertFalse(fields["model"]["none"])
+        self.assertEqual(fields["current"]["default"], 0)
+
+
+class TestSlug(unittest.TestCase):
+
+    maxDiff = None
+
+    def test_define(self):
+
+        definition = relations_unifist.Slug.thy().define()
+        fields = {field["name"]: field for field in definition["fields"]}
+
+        self.assertEqual(definition["name"], "slug")
+        self.assertEqual(definition["id"], "id")
+        self.assertEqual([field["name"] for field in definition["fields"]], ["id", "unum", "source", "model", "current"])
+        self.assertEqual([field["kind"] for field in definition["fields"]], ["int", "str", "str", "str", "str"])
+        self.assertEqual(definition["unique"], {"unum-source-model-current": ["unum", "source", "model", "current"]})
+        for name in ["unum", "source", "model", "current"]:
+            self.assertFalse(fields[name]["none"])
+
+
+class TestJournal(unittest.TestCase):
+
+    maxDiff = None
+
+    def test_define(self):
+
+        definition = relations_unifist.Journal.thy().define()
+        fields = {field["name"]: field for field in definition["fields"]}
+
+        self.assertEqual(definition["name"], "journal")
+        self.assertEqual(definition["id"], "id")
+        self.assertEqual([field["name"] for field in definition["fields"]], ["id", "resource_id", "when", "what"])
+        self.assertEqual([field["kind"] for field in definition["fields"]], ["int", "str", "int", "dict"])
+        self.assertEqual(definition["unique"], {})
+        self.assertEqual(definition["index"], {"resource_id": ["resource_id"]})
+        self.assertFalse(fields["resource_id"]["none"])
+        self.assertFalse(fields["when"]["none"])
+        self.assertFalse(fields["what"]["none"])
+
+        # when is microseconds, filled in on create
+
+        before = time.time_ns() // 1000
+        journal = relations_unifist.Journal(resource_id="abc", what={"create": {}})
+        self.assertTrue(before <= journal.when <= time.time_ns() // 1000)

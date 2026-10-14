@@ -3,7 +3,10 @@ Main Relations Unifist Module
 """
 
 import re
+import time
 import unicodedata
+
+import relations
 
 
 def slugify(titles, length=32):
@@ -32,3 +35,56 @@ def slugify(titles, length=32):
         raise ValueError("nothing to make a slug from")
 
     return slug
+
+
+def microseconds():
+    """
+    Now, as an int of microseconds since the Unix epoch, how every time is stored
+    """
+
+    return time.time_ns() // 1000
+
+
+class Sequence(relations.Model):
+    """
+    A counter, one per unum, source and model. Taking n ids moves current up by n
+    """
+
+    id = int
+    unum = str, False
+    source = str, False
+    model = str, False
+    current = int, 0
+
+    TITLES = ["unum", "source", "model"]
+    UNIQUE = ["unum", "source", "model"]
+
+
+class Slug(relations.Model):
+    """
+    A slug that is taken, one row per slug for a unum, source and model
+    """
+
+    id = int
+    unum = str, False
+    source = str, False
+    model = str, False
+    current = str, False
+
+    TITLES = ["unum", "source", "model", "current"]
+    UNIQUE = ["unum", "source", "model", "current"]
+
+
+class Journal(relations.Model):
+    """
+    Every change, what was created, or the before and after of an update, or what a delete removed
+    """
+
+    id = int
+    resource_id = str, False
+    when = microseconds
+    what = dict, False
+
+    TITLES = ["resource_id"]
+    UNIQUE = {}
+    INDEX = ["resource_id"]
