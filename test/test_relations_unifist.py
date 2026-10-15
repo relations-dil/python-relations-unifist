@@ -450,7 +450,8 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(len(self.journal()), 5)
 
-        # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, but ids and versions still happen
+        # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, and with it the version bump,
+        # because what's written is a copy that already has its version
 
         relations_unifist.UnifistModel.JOURNAL = False
 
@@ -460,7 +461,21 @@ class TestUnifistModel(unittest.TestCase):
         quiet.delete()
 
         self.assertEqual(quiet.id, "4.item.local.home")
-        self.assertEqual(quiet.version, 2)
+        self.assertEqual(quiet.version, 1)
+        self.assertEqual(len(self.journal()), 5)
+
+        # A record with its id and version already, like a synced one, is written as it is
+
+        synced = Item(id="9.item.remote.away", version=5, name="g").create()
+
+        self.assertEqual(synced.id, "9.item.remote.away")
+        self.assertEqual(self.local.data["item"]["9.item.remote.away"]["version"], 5)
+
+        synced.name = "h"
+        synced.update()
+
+        self.assertEqual(synced.version, 5)
+        self.assertEqual(self.local.data["item"]["9.item.remote.away"]["name"], "h")
         self.assertEqual(len(self.journal()), 5)
 
     def test_create(self):
