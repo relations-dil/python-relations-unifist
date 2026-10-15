@@ -116,7 +116,7 @@ class TestJournal(unittest.TestCase):
         self.assertEqual(definition["name"], "journal")
         self.assertEqual(definition["id"], "id")
         self.assertEqual([field["name"] for field in definition["fields"]], ["id", "resource_id", "when", "what"])
-        self.assertEqual([field["kind"] for field in definition["fields"]], ["int", "str", "int", "dict"])
+        self.assertEqual([field["kind"] for field in definition["fields"]], ["str", "str", "int", "dict"])
         self.assertEqual(definition["unique"], {})
         self.assertEqual(definition["index"], {"resource_id": ["resource_id"]})
         self.assertFalse(fields["resource_id"]["none"])
@@ -126,7 +126,7 @@ class TestJournal(unittest.TestCase):
         # when is microseconds, filled in on create
 
         before = time.time_ns() // 1000
-        journal = relations_unifist.Journal(resource_id="abc", what={"create": {}})
+        journal = relations_unifist.Journal(id="1:abc:thing.local:home:home", resource_id="abc", what={"create": {}})
         self.assertTrue(before <= journal.when <= time.time_ns() // 1000)
 
 
@@ -163,10 +163,10 @@ class TestUnifistBase(unittest.TestCase):
 
         item = Item(name="a").create()
 
-        self.assertEqual(item.id, "1.item.local.home")
-        self.assertEqual(list(local.data["item"]), ["1.item.local.home"])
+        self.assertEqual(item.id, "1:item.local:home")
+        self.assertEqual(list(local.data["item"]), ["1:item.local:home"])
         self.assertEqual([row["current"] for row in unifist.data["sequence"].values()], [1])
-        self.assertEqual([row["resource_id"] for row in unifist.data["journal"].values()], ["1.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in unifist.data["journal"].values()], ["1:item.local:home"])
 
 
 class Base(relations_unifist.UnifistModel):
@@ -268,7 +268,7 @@ class TestUnifistModel(unittest.TestCase):
 
     def journal(self):
 
-        return sorted(self.unifist.data["journal"].values(), key=lambda row: row["id"])
+        return list(self.unifist.data["journal"].values())
 
     def counted(self, action):
 
@@ -326,14 +326,14 @@ class TestUnifistModel(unittest.TestCase):
 
         # With no SLUG it's seq.model.source.unum, the sequence kept in the unifist source
 
-        self.assertEqual(Thing().generate_id(), "1.thing.local.home")
+        self.assertEqual(Thing().generate_id(), "1:thing.local:home")
         self.assertEqual(self.unifist.data["sequence"], {1: {"id": 1, "unum": "home", "source": "local", "model": "thing", "current": 1}})
-        self.assertEqual(Thing().generate_id(), "2.thing.local.home")
+        self.assertEqual(Thing().generate_id(), "2:thing.local:home")
         self.assertEqual(self.unifist.data["sequence"][1]["current"], 2)
 
         # Another model is another counter
 
-        self.assertEqual(Other().generate_id(), "1.other.local.home")
+        self.assertEqual(Other().generate_id(), "1:other.local:home")
         self.assertEqual(len(self.unifist.data["sequence"]), 2)
 
         # If someone else took one between reading and updating, it reads again
@@ -349,7 +349,7 @@ class TestUnifistModel(unittest.TestCase):
 
         self.unifist.update = racing
 
-        self.assertEqual(Thing().generate_id(), "4.thing.local.home")
+        self.assertEqual(Thing().generate_id(), "4:thing.local:home")
         self.assertEqual(self.unifist.data["sequence"][1]["current"], 4)
 
         # Or if someone else inserted the counter first
@@ -364,33 +364,88 @@ class TestUnifistModel(unittest.TestCase):
 
         self.unifist.create = inserting
 
-        self.assertEqual(Third().generate_id(), "10.third.local.home")
+        self.assertEqual(Third().generate_id(), "10:third.local:home")
         self.assertEqual(self.unifist.data["sequence"][3]["current"], 10)
 
         # With a SLUG it's the slug of that field, kept in the unifist source too
 
-        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world.page.local.home")
+        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world:page.local:home")
         self.assertEqual(self.unifist.data["slug"], {1: {"id": 1, "unum": "home", "source": "local", "model": "page", "current": "hello-world"}})
 
         # The same slug again adds -1, -2 and so on until it fits
 
-        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world-1.page.local.home")
-        self.assertEqual(Page(title="hello world").generate_id(), "hello-world-2.page.local.home")
+        self.assertEqual(Page(title="Hello, World!").generate_id(), "hello-world-1:page.local:home")
+        self.assertEqual(Page(title="hello world").generate_id(), "hello-world-2:page.local:home")
         self.assertEqual(len(self.unifist.data["slug"]), 3)
 
         # A list of fields makes one slug from all of them
 
-        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch.person.local.home")
+        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch:person.local:home")
 
         # Another model has its own slugs, so the same one doesn't clash
 
-        self.assertEqual(Page(title="Gaffer Fitch").generate_id(), "gaffer-fitch.page.local.home")
-        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch-1.person.local.home")
+        self.assertEqual(Page(title="Gaffer Fitch").generate_id(), "gaffer-fitch:page.local:home")
+        self.assertEqual(Person(first="Gaffer", last="Fitch").generate_id(), "gaffer-fitch-1:person.local:home")
 
         # Nothing to make a slug from
 
         with self.assertRaisesRegex(ValueError, "nothing to make a slug from"):
             Page(title="!!!").generate_id()
+
+    def test_journal(self):
+
+        # The id is version:identifier:resource:owner:writer, so a transaction is the same everywhere, the owner being the
+        # unum in the record's id and the writer this unum. A delete is the version after the one it removes
+
+        item = Item(name="a").create()
+        item.name = "b"
+        item.update()
+        item.delete()
+
+        self.assertEqual([row["id"] for row in self.journal()], [
+            "1:1:item.local:home:home",
+            "2:1:item.local:home:home",
+            "3:1:item.local:home:home"
+        ])
+
+        # Writing on behalf of another unum, the sync say, is said with the write, and makes the id that unum's write had
+
+        Item(id="9:item.local:away", name="c").create(writer="away")
+
+        self.assertEqual(self.journal()[3]["id"], "1:9:item.local:away:away")
+        self.assertEqual(self.journal()[3]["resource_id"], "9:item.local:away")
+
+        # A record another unum owns that this one writes keeps its owner, and this unum is the writer
+
+        away = Item.one("9:item.local:away").retrieve()
+        away.name = "d"
+        away.update()
+
+        self.assertEqual(self.journal()[4]["id"], "2:9:item.local:away:home")
+
+        away.name = "e"
+        away.update(writer="away")
+
+        away.delete(writer="away")
+
+        self.assertEqual([row["id"] for row in self.journal()[5:]], ["3:9:item.local:away:away", "4:9:item.local:away:away"])
+
+        # It goes on to each record of a bulk or a query
+
+        Item.bulk().add(name="f").add(name="g").create(writer="away")
+
+        self.assertEqual([row["id"] for row in self.journal()[7:]], ["1:2:item.local:home:away", "1:3:item.local:home:away"])
+
+        Item.many(name="f").set(name="h").update(writer="away")
+        Item.many(name="g").delete(writer="away")
+
+        self.assertEqual([row["id"] for row in self.journal()[9:]], ["2:2:item.local:home:away", "2:3:item.local:home:away"])
+
+        # And is gone after, the next write is this unum's again
+
+        Item(name="i").create()
+
+        self.assertEqual(self.journal()[11]["id"], "1:4:item.local:home:home")
 
     def test_pre(self):
 
@@ -398,7 +453,7 @@ class TestUnifistModel(unittest.TestCase):
 
         item = Item(name="a").create()
 
-        self.assertEqual(item.id, "1.item.local.home")
+        self.assertEqual(item.id, "1:item.local:home")
         self.assertEqual(item.version, 1)
 
         # Every update that changes something bumps the version, one that changes nothing doesn't
@@ -421,11 +476,11 @@ class TestUnifistModel(unittest.TestCase):
 
         Item.bulk().add(name="d").add(name="e").create()
 
-        self.assertEqual(sorted(self.local.data["item"]), ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
+        self.assertEqual(sorted(self.local.data["item"]), ["1:item.local:home", "2:item.local:home", "3:item.local:home"])
 
         # Retrieving is left alone
 
-        self.assertEqual(Item.one("1.item.local.home").retrieve().name, "c")
+        self.assertEqual(Item.one("1:item.local:home").retrieve().name, "c")
 
     def test_post(self):
 
@@ -436,13 +491,14 @@ class TestUnifistModel(unittest.TestCase):
         after = relations_unifist.microseconds()
 
         self.assertEqual(len(self.journal()), 1)
-        self.assertEqual(self.journal()[0]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[0]["id"], "1:1:item.local:home:home")
+        self.assertEqual(self.journal()[0]["resource_id"], "1:item.local:home")
         self.assertEqual(self.journal()[0]["what"], {
             "action": "create",
             "app": "local",
             "block": "item",
-            "id": "1.item.local.home",
-            "after": {"id": "1.item.local.home", "version": 1, "name": "a"}
+            "id": "1:item.local:home",
+            "after": {"id": "1:item.local:home", "version": 1, "name": "a"}
         })
         self.assertTrue(before <= self.journal()[0]["when"] <= after)
 
@@ -452,14 +508,15 @@ class TestUnifistModel(unittest.TestCase):
         item.update()
 
         self.assertEqual(len(self.journal()), 2)
-        self.assertEqual(self.journal()[1]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[1]["id"], "2:1:item.local:home:home")
+        self.assertEqual(self.journal()[1]["resource_id"], "1:item.local:home")
         self.assertEqual(self.journal()[1]["what"], {
             "action": "update",
             "app": "local",
             "block": "item",
-            "id": "1.item.local.home",
-            "before": {"id": "1.item.local.home", "version": 1, "name": "a"},
-            "after": {"id": "1.item.local.home", "version": 2, "name": "b"}
+            "id": "1:item.local:home",
+            "before": {"id": "1:item.local:home", "version": 1, "name": "a"},
+            "after": {"id": "1:item.local:home", "version": 2, "name": "b"}
         })
         self.assertTrue(self.journal()[0]["when"] <= self.journal()[1]["when"])
 
@@ -474,24 +531,25 @@ class TestUnifistModel(unittest.TestCase):
         item.delete()
 
         self.assertEqual(len(self.journal()), 3)
-        self.assertEqual(self.journal()[2]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[2]["id"], "3:1:item.local:home:home")
+        self.assertEqual(self.journal()[2]["resource_id"], "1:item.local:home")
         self.assertEqual(self.journal()[2]["what"], {
             "action": "delete",
             "app": "local",
             "block": "item",
-            "id": "1.item.local.home",
-            "before": {"id": "1.item.local.home", "version": 2, "name": "b"}
+            "id": "1:item.local:home",
+            "before": {"id": "1:item.local:home", "version": 2, "name": "b"}
         })
 
         # A bulk create is journaled one record at a time
 
         Item.bulk().add(name="c").add(name="d").create()
 
-        self.assertEqual([row["resource_id"] for row in self.journal()[3:]], ["2.item.local.home", "3.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in self.journal()[3:]], ["2:item.local:home", "3:item.local:home"])
 
         # Retrieving isn't journaled
 
-        Item.one("2.item.local.home").retrieve()
+        Item.one("2:item.local:home").retrieve()
 
         self.assertEqual(len(self.journal()), 5)
 
@@ -504,7 +562,7 @@ class TestUnifistModel(unittest.TestCase):
         quiet.update()
         quiet.delete()
 
-        self.assertEqual(quiet.id, "4.item.local.home")
+        self.assertEqual(quiet.id, "4:item.local:home")
         self.assertEqual(quiet.version, 2)
         self.assertEqual(len(self.journal()), 5)
 
@@ -517,9 +575,9 @@ class TestUnifistModel(unittest.TestCase):
         Item.bulk().add(name="a").add(name="b").add(name="c").create()
 
         self.assertEqual(len(calls), 3)
-        self.assertEqual(sorted(self.local.data["item"]), ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
-        self.assertEqual([row["resource_id"] for row in self.journal()], ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
-        self.assertEqual(self.local.data["item"]["2.item.local.home"]["name"], "b")
+        self.assertEqual(sorted(self.local.data["item"]), ["1:item.local:home", "2:item.local:home", "3:item.local:home"])
+        self.assertEqual([row["resource_id"] for row in self.journal()], ["1:item.local:home", "2:item.local:home", "3:item.local:home"])
+        self.assertEqual(self.local.data["item"]["2:item.local:home"]["name"], "b")
 
         # Even when the chunk size makes it create as it goes
 
@@ -556,14 +614,14 @@ class TestUnifistModel(unittest.TestCase):
 
         rows = self.journal()[3:]
 
-        self.assertEqual([row["resource_id"] for row in rows], ["1.item.local.home", "2.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in rows], ["1:item.local:home", "2:item.local:home"])
         self.assertEqual(rows[1]["what"], {
             "action": "update",
             "app": "local",
             "block": "item",
-            "id": "2.item.local.home",
-            "before": {"id": "2.item.local.home", "version": 1, "name": "a"},
-            "after": {"id": "2.item.local.home", "version": 2, "name": "z"}
+            "id": "2:item.local:home",
+            "before": {"id": "2:item.local:home", "version": 1, "name": "a"},
+            "after": {"id": "2:item.local:home", "version": 2, "name": "z"}
         })
 
         # Nothing matching is nothing done
@@ -591,7 +649,7 @@ class TestUnifistModel(unittest.TestCase):
 
         calls.clear()
 
-        item = Item.one("3.item.local.home").retrieve()
+        item = Item.one("3:item.local:home").retrieve()
         item.name = "x"
         item.update()
 
@@ -608,17 +666,17 @@ class TestUnifistModel(unittest.TestCase):
         self.assertEqual(Item.many(name="a").delete(), 2)
 
         self.assertEqual(len(calls), 2)
-        self.assertEqual(sorted(self.local.data["item"]), ["3.item.local.home"])
+        self.assertEqual(sorted(self.local.data["item"]), ["3:item.local:home"])
 
         rows = self.journal()[3:]
 
-        self.assertEqual([row["resource_id"] for row in rows], ["1.item.local.home", "2.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in rows], ["1:item.local:home", "2:item.local:home"])
         self.assertEqual(rows[0]["what"], {
             "action": "delete",
             "app": "local",
             "block": "item",
-            "id": "1.item.local.home",
-            "before": {"id": "1.item.local.home", "version": 1, "name": "a"}
+            "id": "1:item.local:home",
+            "before": {"id": "1:item.local:home", "version": 1, "name": "a"}
         })
 
         # Nothing matching is nothing done
@@ -640,13 +698,13 @@ class TestUnifistModel(unittest.TestCase):
         items.delete()
 
         self.assertEqual(len(calls), 2)
-        self.assertEqual(sorted(self.local.data["item"]), ["3.item.local.home"])
+        self.assertEqual(sorted(self.local.data["item"]), ["3:item.local:home"])
 
         # One record is just one write
 
         calls.clear()
 
-        Item.one("3.item.local.home").delete()
+        Item.one("3:item.local:home").delete()
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.local.data["item"], {})

@@ -86,10 +86,11 @@ class Slug(UnifistBase):
 
 class Journal(UnifistBase):
     """
-    Every change, what was created, or the before and after of an update, or what a delete removed
+    Every change, what was created, or the before and after of an update, or what a delete removed. The id
+    is the transaction, version:identifier:resource:owner:writer, the same in every unum it's written to
     """
 
-    id = int
+    id = str
     resource_id = str, False
     when = microseconds
     what = dict, False
@@ -112,6 +113,7 @@ class UnifistModel(relations.Model):
     JOURNAL = True  # Whether or not to Journal
 
     _journaling = None  # What pre keeps for post to journal
+    _writer = None      # The unum writing, if on behalf of another, kept for post
 
     def __init__(self, *args, **kwargs):
         """
@@ -136,7 +138,7 @@ class UnifistModel(relations.Model):
 
     def generate_id(self):
         """
-        Makes the id for a new record: current.model.source.unum. Without a SLUG the current is the next
+        Makes the id for a new record: current:model.source:unum. Without a SLUG the current is the next
         number from the Sequence, which moves up only where it still holds what was just read, so nothing is
         given out twice, and is inserted the first time. With a SLUG the current is the slug of the field, or
         the list of fields, tried in the Slug table, with -1, -2 and so on added until one isn't taken. Either
@@ -191,13 +193,20 @@ class UnifistModel(relations.Model):
                     current = f"{slug}-{tries}"
                     continue
 
-        return f"{current}.{self.NAME}.{self.SOURCE}.{self.UNUM}"
+        return f"{current}:{self.NAME}.{self.SOURCE}:{self.UNUM}"
 
     def journal(self, action, model, before=None):
         """
         Writes a Journal row for a record that was created, updated or deleted, with the app (source) and
-        block (model) it was in, the id, and the whole record before and after as the action makes sense
+        block (model) it was in, the id, and the whole record before and after as the action makes sense.
+        Its id is version:identifier:resource:owner:writer, the version being the one after the write (a
+        delete's is the one after the version it removes), the owner the unum in the record's id, and the
+        writer this unum unless the write said it was on behalf of another
         """
+
+        identifier, resource, owner = model.id.split(":", 2)
+
+        version = before["version"] + 1 if action == "delete" else model.version
 
         what = {
             "action": action,
@@ -214,28 +223,38 @@ class UnifistModel(relations.Model):
         else:
             what["before"] = before
 
-        Journal(resource_id=model.id, what=what).create()
+        Journal(
+            id=f"{version}:{identifier}:{resource}:{owner}:{self._writer or self.UNUM}",
+            resource_id=model.id,
+            what=what
+        ).create()
 
-    def create(self, *args, **kwargs):
+    def create(self, *args, writer=None, **kwargs):
         """
-        Creates one record at a time, each with its own hooks, so a bulk create is a write for every record
+        Creates one record at a time, each with its own hooks, so a bulk create is a write for every record.
+        The writer is the unum writing, this unum unless it's on behalf of another
         """
+
+        self._writer = writer
 
         if not self._bulk:
             return super().create(*args, **kwargs)
 
         for model in self._models or []:
-            model.create(*args, **kwargs)
+            model.create(*args, writer=writer, **kwargs)
 
         self._models = []
 
         return self
 
-    def update(self, *args, **kwargs):
+    def update(self, *args, writer=None, **kwargs):
         """
         Updates one record at a time, each with its own hooks. By a query it selects the records first, then
-        sets what was set on each of them. Returns how many were updated
+        sets what was set on each of them. Returns how many were updated. The writer is the unum writing,
+        this unum unless it's on behalf of another
         """
+
+        self._writer = writer
 
         by_query = self._action == "retrieve" and self._mode == "many"
 
@@ -249,15 +268,17 @@ class UnifistModel(relations.Model):
                 model.set(**values)
 
         if by_query or self._models:
-            return sum(model.update(*args, **kwargs) for model in self._models or [])
+            return sum(model.update(*args, writer=writer, **kwargs) for model in self._models or [])
 
         return super().update(*args, **kwargs)
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args, writer=None, **kwargs):
         """
         Deletes one record at a time, each with its own hooks. By a query it selects the records first.
-        Returns how many were deleted
+        Returns how many were deleted. The writer is the unum writing, this unum unless it's on behalf of another
         """
+
+        self._writer = writer
 
         by_query = self._action == "retrieve" and self._mode == "many"
 
@@ -265,7 +286,7 @@ class UnifistModel(relations.Model):
             self.retrieve()
 
         if by_query or self._models:
-            return sum(model.delete(*args, **kwargs) for model in self._models or [])
+            return sum(model.delete(*args, writer=writer, **kwargs) for model in self._models or [])
 
         return super().delete(*args, **kwargs)
 
