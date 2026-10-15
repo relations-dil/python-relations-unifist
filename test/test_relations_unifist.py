@@ -130,6 +130,45 @@ class TestJournal(unittest.TestCase):
         self.assertTrue(before <= journal.when <= time.time_ns() // 1000)
 
 
+class TestUnifistBase(unittest.TestCase):
+
+    maxDiff = None
+
+    def tearDown(self):
+
+        relations_unifist.UnifistBase.SOURCE = "unifist"
+        relations_unifist.UnifistModel.UNUM = None
+
+    def test_source(self):
+
+        # The tables are kept in a source named unifist unless it's changed, once, on the lib
+
+        self.assertEqual(relations_unifist.Sequence.SOURCE, "unifist")
+        self.assertEqual(relations_unifist.Slug.SOURCE, "unifist")
+        self.assertEqual(relations_unifist.Journal.SOURCE, "unifist")
+
+        relations_unifist.UnifistBase.SOURCE = "ledger-unifist"
+
+        self.assertEqual(relations_unifist.Sequence.SOURCE, "ledger-unifist")
+        self.assertEqual(relations_unifist.Slug.SOURCE, "ledger-unifist")
+        self.assertEqual(relations_unifist.Journal.SOURCE, "ledger-unifist")
+
+        # The app makes a source with that name, separate from the one its models are in, and that's where
+        # the ids and the journal go
+
+        unifist = relations.unittest.MockSource("ledger-unifist")
+        local = relations.unittest.MockSource("local")
+
+        relations_unifist.UnifistModel.UNUM = "home"
+
+        item = Item(name="a").create()
+
+        self.assertEqual(item.id, "1.item.local.home")
+        self.assertEqual(list(local.data["item"]), ["1.item.local.home"])
+        self.assertEqual([row["current"] for row in unifist.data["sequence"].values()], [1])
+        self.assertEqual([row["resource_id"] for row in unifist.data["journal"].values()], ["1.item.local.home"])
+
+
 class Base(relations_unifist.UnifistModel):
 
     SOURCE = "local"
@@ -245,6 +284,12 @@ class TestUnifistModel(unittest.TestCase):
         return calls
 
     def test_define(self):
+
+        # The unifist source is unifist by default, and set on the app's base and inherited, a different source than the app's
+
+        self.assertEqual(relations_unifist.UnifistModel.UNIFIST, "unifist")
+        self.assertEqual(Thing.UNIFIST, "unifist")
+        self.assertNotEqual(Thing.UNIFIST, Thing.SOURCE)
 
         # The unum is set on the base and inherited, the slug is set on the model, and it's none by default
 
@@ -450,8 +495,7 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(len(self.journal()), 5)
 
-        # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, and with it the version bump,
-        # because what's written is a copy that already has its version
+        # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, but ids and versions still happen
 
         relations_unifist.UnifistModel.JOURNAL = False
 
@@ -461,21 +505,7 @@ class TestUnifistModel(unittest.TestCase):
         quiet.delete()
 
         self.assertEqual(quiet.id, "4.item.local.home")
-        self.assertEqual(quiet.version, 1)
-        self.assertEqual(len(self.journal()), 5)
-
-        # A record with its id and version already, like a synced one, is written as it is
-
-        synced = Item(id="9.item.remote.away", version=5, name="g").create()
-
-        self.assertEqual(synced.id, "9.item.remote.away")
-        self.assertEqual(self.local.data["item"]["9.item.remote.away"]["version"], 5)
-
-        synced.name = "h"
-        synced.update()
-
-        self.assertEqual(synced.version, 5)
-        self.assertEqual(self.local.data["item"]["9.item.remote.away"]["name"], "h")
+        self.assertEqual(quiet.version, 2)
         self.assertEqual(len(self.journal()), 5)
 
     def test_create(self):

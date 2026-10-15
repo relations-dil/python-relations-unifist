@@ -102,9 +102,11 @@ class Journal(UnifistBase):
 class UnifistModel(relations.Model):
     """
     The base of models whose ids come from a Unifist source, a regular source holding the sequence, slug and
-    journal tables, named by UnifistBase.SOURCE. UNUM names the unum, set on the model like SOURCE is
+    journal tables. UNIFIST names that source, unifist unless changed, and UNUM names the unum, both set on
+    the app's own base model like SOURCE is, and the app makes its source with that name
     """
 
+    UNIFIST = "unifist"  # Name of the Unifist source, a different source than the app's
     UNUM = None     # Name of the unum
     SLUG = None     # Whether to use other fields for id
     JOURNAL = True  # Whether or not to Journal
