@@ -102,10 +102,9 @@ class Journal(UnifistBase):
 class UnifistModel(relations.Model):
     """
     The base of models whose ids come from a Unifist source, a regular source holding the sequence, slug and
-    journal tables. UNIFIST names that source and UNUM names the unum, both set on the model like SOURCE is
+    journal tables, named by UnifistBase.SOURCE. UNUM names the unum, set on the model like SOURCE is
     """
 
-    UNIFIST = None  # Name of the Unifist source
     UNUM = None     # Name of the unum
     SLUG = None     # Whether to use other fields for id
     JOURNAL = True  # Whether or not to Journal
@@ -215,16 +214,66 @@ class UnifistModel(relations.Model):
 
         Journal(resource_id=model.id, what=what).create()
 
+    def create(self, *args, **kwargs):
+        """
+        Creates one record at a time, each with its own hooks, so a bulk create is a write for every record
+        """
+
+        if not self._bulk:
+            return super().create(*args, **kwargs)
+
+        for model in self._models or []:
+            model.create(*args, **kwargs)
+
+        self._models = []
+
+        return self
+
+    def update(self, *args, **kwargs):
+        """
+        Updates one record at a time, each with its own hooks. By a query it selects the records first, then
+        sets what was set on each of them. Returns how many were updated
+        """
+
+        by_query = self._action == "retrieve" and self._mode == "many"
+
+        if by_query:
+
+            values = {field.name: field.value for field in self._record._order if field.changed} # pylint: disable=protected-access
+
+            self.retrieve()
+
+            for model in self._models or []:
+                model.set(**values)
+
+        if by_query or self._models:
+            return sum(model.update(*args, **kwargs) for model in self._models or [])
+
+        return super().update(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """
+        Deletes one record at a time, each with its own hooks. By a query it selects the records first.
+        Returns how many were deleted
+        """
+
+        by_query = self._action == "retrieve" and self._mode == "many"
+
+        if by_query:
+            self.retrieve()
+
+        if by_query or self._models:
+            return sum(model.delete(*args, **kwargs) for model in self._models or [])
+
+        return super().delete(*args, **kwargs)
+
     def pre(self, action, *args, **kwargs):
         """
         Gives new records their ids, bumps the version of records that changed, and keeps what post
-        needs to journal. Changing or deleting by a query isn't supported yet, only one record at a time
+        needs to journal
         """
 
         self._journaling = []
-
-        if action in ["update", "delete"] and self._action == "retrieve":
-            raise relations.ModelError(self, f"{action} by query isn't supported yet")
 
         for model in self._each("create" if action == "create" else "update"):
 

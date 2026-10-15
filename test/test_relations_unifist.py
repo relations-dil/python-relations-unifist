@@ -227,6 +227,23 @@ class TestUnifistModel(unittest.TestCase):
         relations_unifist.UnifistModel.UNUM = None
         relations_unifist.UnifistModel.JOURNAL = True
 
+    def journal(self):
+
+        return sorted(self.unifist.data["journal"].values(), key=lambda row: row["id"])
+
+    def counted(self, action):
+
+        calls = []
+        real = getattr(self.local, action)
+
+        def counting(model, *args, **kwargs):
+            calls.append(model)
+            return real(model, *args, **kwargs)
+
+        setattr(self.local, action, counting)
+
+        return calls
+
     def test_define(self):
 
         # The unum is set on the base and inherited, the slug is set on the model, and it's none by default
@@ -365,20 +382,7 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(Item.one("1.item.local.home").retrieve().name, "c")
 
-        # Changing or deleting by a query isn't supported yet, only one record at a time
-
-        with self.assertRaisesRegex(relations.ModelError, "item: update by query isn't supported yet"):
-            Item.many(name="c").set(name="q").update()
-
-        with self.assertRaisesRegex(relations.ModelError, "item: delete by query isn't supported yet"):
-            Item.many(name="c").delete()
-
-        self.assertEqual(Item.one("1.item.local.home").retrieve().name, "c")
-
     def test_post(self):
-
-        def journal():
-            return sorted(self.unifist.data["journal"].values(), key=lambda row: row["id"])
 
         # A create is journaled, by the id, with when in microseconds, and the app (source) and block (model) it was in
 
@@ -386,25 +390,25 @@ class TestUnifistModel(unittest.TestCase):
         item = Item(name="a").create()
         after = relations_unifist.microseconds()
 
-        self.assertEqual(len(journal()), 1)
-        self.assertEqual(journal()[0]["resource_id"], "1.item.local.home")
-        self.assertEqual(journal()[0]["what"], {
+        self.assertEqual(len(self.journal()), 1)
+        self.assertEqual(self.journal()[0]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[0]["what"], {
             "action": "create",
             "app": "local",
             "block": "item",
             "id": "1.item.local.home",
             "after": {"id": "1.item.local.home", "version": 1, "name": "a"}
         })
-        self.assertTrue(before <= journal()[0]["when"] <= after)
+        self.assertTrue(before <= self.journal()[0]["when"] <= after)
 
         # An update is journaled with the whole record before and after, the version included
 
         item.name = "b"
         item.update()
 
-        self.assertEqual(len(journal()), 2)
-        self.assertEqual(journal()[1]["resource_id"], "1.item.local.home")
-        self.assertEqual(journal()[1]["what"], {
+        self.assertEqual(len(self.journal()), 2)
+        self.assertEqual(self.journal()[1]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[1]["what"], {
             "action": "update",
             "app": "local",
             "block": "item",
@@ -412,21 +416,21 @@ class TestUnifistModel(unittest.TestCase):
             "before": {"id": "1.item.local.home", "version": 1, "name": "a"},
             "after": {"id": "1.item.local.home", "version": 2, "name": "b"}
         })
-        self.assertTrue(journal()[0]["when"] <= journal()[1]["when"])
+        self.assertTrue(self.journal()[0]["when"] <= self.journal()[1]["when"])
 
         # An update that changes nothing isn't journaled
 
         item.update()
 
-        self.assertEqual(len(journal()), 2)
+        self.assertEqual(len(self.journal()), 2)
 
         # A delete is journaled with the whole record it removed
 
         item.delete()
 
-        self.assertEqual(len(journal()), 3)
-        self.assertEqual(journal()[2]["resource_id"], "1.item.local.home")
-        self.assertEqual(journal()[2]["what"], {
+        self.assertEqual(len(self.journal()), 3)
+        self.assertEqual(self.journal()[2]["resource_id"], "1.item.local.home")
+        self.assertEqual(self.journal()[2]["what"], {
             "action": "delete",
             "app": "local",
             "block": "item",
@@ -438,13 +442,13 @@ class TestUnifistModel(unittest.TestCase):
 
         Item.bulk().add(name="c").add(name="d").create()
 
-        self.assertEqual([row["resource_id"] for row in journal()[3:]], ["2.item.local.home", "3.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in self.journal()[3:]], ["2.item.local.home", "3.item.local.home"])
 
         # Retrieving isn't journaled
 
         Item.one("2.item.local.home").retrieve()
 
-        self.assertEqual(len(journal()), 5)
+        self.assertEqual(len(self.journal()), 5)
 
         # Set once on the base, like the unum, JOURNAL turns it off, for the daemon say, but ids and versions still happen
 
@@ -457,4 +461,147 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(quiet.id, "4.item.local.home")
         self.assertEqual(quiet.version, 2)
-        self.assertEqual(len(journal()), 5)
+        self.assertEqual(len(self.journal()), 5)
+
+    def test_create(self):
+
+        # A bulk create is written one record at a time, each with its id and its journal row
+
+        calls = self.counted("create")
+
+        Item.bulk().add(name="a").add(name="b").add(name="c").create()
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sorted(self.local.data["item"]), ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
+        self.assertEqual([row["resource_id"] for row in self.journal()], ["1.item.local.home", "2.item.local.home", "3.item.local.home"])
+        self.assertEqual(self.local.data["item"]["2.item.local.home"]["name"], "b")
+
+        # Even when the chunk size makes it create as it goes
+
+        calls.clear()
+
+        Item.bulk(2).add(name="d").add(name="e").add(name="f").create()
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(self.local.data["item"]), 6)
+
+        # One record is just one write
+
+        calls.clear()
+
+        Item(name="g").create()
+
+        self.assertEqual(len(calls), 1)
+
+    def test_update(self):
+
+        Item.bulk().add(name="a").add(name="a").add(name="b").create()
+
+        # By a query, it selects, then changes and updates each record on its own
+
+        calls = self.counted("update")
+
+        self.assertEqual(Item.many(name="a").set(name="z").update(), 2)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([self.local.data["item"][id]["name"] for id in sorted(self.local.data["item"])], ["z", "z", "b"])
+        self.assertEqual([self.local.data["item"][id]["version"] for id in sorted(self.local.data["item"])], [2, 2, 1])
+
+        # Each has its own journal row, the whole record before and after
+
+        rows = self.journal()[3:]
+
+        self.assertEqual([row["resource_id"] for row in rows], ["1.item.local.home", "2.item.local.home"])
+        self.assertEqual(rows[1]["what"], {
+            "action": "update",
+            "app": "local",
+            "block": "item",
+            "id": "2.item.local.home",
+            "before": {"id": "2.item.local.home", "version": 1, "name": "a"},
+            "after": {"id": "2.item.local.home", "version": 2, "name": "z"}
+        })
+
+        # Nothing matching is nothing done
+
+        calls.clear()
+
+        self.assertEqual(Item.many(name="nope").set(name="q").update(), 0)
+        self.assertEqual(len(calls), 0)
+        self.assertEqual(len(self.journal()), 5)
+
+        # Records that were retrieved and changed are updated one at a time too
+
+        items = Item.many(name="z").retrieve()
+        items.name = "y"
+
+        calls.clear()
+
+        items.update()
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([self.local.data["item"][id]["version"] for id in sorted(self.local.data["item"])], [3, 3, 1])
+        self.assertEqual(len(self.journal()), 7)
+
+        # One record is just one write
+
+        calls.clear()
+
+        item = Item.one("3.item.local.home").retrieve()
+        item.name = "x"
+        item.update()
+
+        self.assertEqual(len(calls), 1)
+
+    def test_delete(self):
+
+        Item.bulk().add(name="a").add(name="a").add(name="b").create()
+
+        # By a query, it selects, then deletes each record on its own
+
+        calls = self.counted("delete")
+
+        self.assertEqual(Item.many(name="a").delete(), 2)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sorted(self.local.data["item"]), ["3.item.local.home"])
+
+        rows = self.journal()[3:]
+
+        self.assertEqual([row["resource_id"] for row in rows], ["1.item.local.home", "2.item.local.home"])
+        self.assertEqual(rows[0]["what"], {
+            "action": "delete",
+            "app": "local",
+            "block": "item",
+            "id": "1.item.local.home",
+            "before": {"id": "1.item.local.home", "version": 1, "name": "a"}
+        })
+
+        # Nothing matching is nothing done
+
+        calls.clear()
+
+        self.assertEqual(Item.many(name="nope").delete(), 0)
+        self.assertEqual(len(calls), 0)
+        self.assertEqual(len(self.journal()), 5)
+
+        # Records that were retrieved are deleted one at a time too
+
+        Item.bulk().add(name="c").add(name="c").create()
+
+        items = Item.many(name="c").retrieve()
+
+        calls.clear()
+
+        items.delete()
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sorted(self.local.data["item"]), ["3.item.local.home"])
+
+        # One record is just one write
+
+        calls.clear()
+
+        Item.one("3.item.local.home").delete()
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.local.data["item"], {})
