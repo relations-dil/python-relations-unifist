@@ -20,7 +20,8 @@ setup(
         'relations_unifist'
     ],
     install_requires=[
-        'relations-dil>=0.6.20'
+        'relations-dil>=0.6.20',
+        'relations-restx>=0.6.7'
     ],
     url="https://github.com/relations-dil/python-relations-unifist",
     author="Gaffer Fitch",

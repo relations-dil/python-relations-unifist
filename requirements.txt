@@ -1,4 +1,11 @@
 relations-dil==0.6.20
+relations-restx==0.6.7
+Werkzeug==2.1.2
+flask==2.1.2
+flask-restx==0.5.1
+jsonschema==4.17.3
+MarkupSafe==2.1.5
+click==8.1.8
 debugpy==1.8.22
 coverage==7.16.2
 pylint==4.1.3
