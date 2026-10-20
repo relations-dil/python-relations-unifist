@@ -5,6 +5,14 @@ All notable changes to python-relations-unifist are recorded here, newest first.
 
 ## [0.2.0] - 2026-10-20
 
+### Added
+- `relations_unifist.Resource`, a `relations_restx.Resource` that serves its model under `/model`: `/model/{singular}` and, for a model with an id, `/model/{singular}/<id>`. `thy().endpoints()` lists those, so the OpenAPI generator, which goes through the URLs a resource lists, documents the new paths with no change of its own (relations-dil/python-relations-unifist#4).
+- `relations_unifist.attach(restx, module, models, actions=None, views=None)`, the way to serve an app's models from here instead of `relations_restx.attach`. It reuses `relations_restx.resources()` and `ensure()` and serves `GET /model` as `relations_restx.attach` does, listing the models, but serves every model's resource under `/model/{singular}`, including the resources `ensure` makes and ones that subclass `relations_restx.Resource`. It adds `GET /action`, `{"actions": [...]}`, and `GET /view`, `{"views": [...]}`, both empty lists unless `actions` or `views` are given. These are placeholders, nothing registers actions or views yet.
+
+### Changed
+- Needs relations-restx 0.6.7, with the packages it pins (flask, Werkzeug, flask-restx, jsonschema, MarkupSafe and click) in `requirements.txt`.
+- The `Dockerfile` and `make setup` use `python:3.13` rather than `python:3`, as flask 2.1.2 does not run on Python 3.14 and later.
+
 ## [0.1.0] - 2026-10-14
 
 ### Added
