@@ -6,7 +6,10 @@ import re
 import time
 import unicodedata
 
+import flask_restx
+
 import relations
+import relations_restx
 
 
 def slugify(titles, length=32):
@@ -328,3 +331,99 @@ class UnifistModel(relations.Model):
         self._journaling = []
 
         return result
+
+
+class Resource(relations_restx.Resource):
+    """
+    A relations_restx Resource that serves its model under /model, /model/{singular} and /model/{singular}/<id>
+    """
+
+    @classmethod
+    def thy(cls, self=None):
+        """
+        Makes the shell of an instance from this class, so thy().endpoints() is this class's, not the base's
+        """
+
+        if self is None:
+            self = object.__new__(cls)
+
+        return super().thy(self)
+
+    def endpoints(self):
+        """
+        Lists the endpoints this resource has, under /model
+        """
+
+        endpoints = [f"/model/{self.SINGULAR}"]
+
+        if self._model.ID is not None:
+            endpoints.append(f"/model/{self.SINGULAR}/<id>")
+
+        return endpoints
+
+
+def attach(restx, module, models, actions=None, views=None):
+    """
+    Attach all Resources to a RestX under /model, whatever they subclass (the ones ensure makes are
+    relations_restx's), with GET /model listing the models, GET /action the actions and GET /view the views,
+    both empty unless given
+    """
+
+    class Model(flask_restx.Resource):
+        """
+        Custom class for each call
+        """
+
+        MODELS = []
+
+        def get(self):
+            """
+            List all models
+            """
+            return {"models": self.MODELS}
+
+    class Action(flask_restx.Resource):
+        """
+        Custom class for each call
+        """
+
+        ACTIONS = list(actions or [])
+
+        def get(self):
+            """
+            List all actions
+            """
+            return {"actions": self.ACTIONS}
+
+    class View(flask_restx.Resource):
+        """
+        Custom class for each call
+        """
+
+        VIEWS = list(views or [])
+
+        def get(self):
+            """
+            List all views
+            """
+            return {"views": self.VIEWS}
+
+    restx.add_resource(Model, "/model")
+    restx.add_resource(Action, "/action")
+    restx.add_resource(View, "/view")
+
+    for resource in relations_restx.resources(module) + relations_restx.ensure(module, models):
+
+        thy = resource.thy()
+
+        Model.MODELS.append({
+            "id": thy._model._id,
+            "titles": thy._model._titles,
+            "title": thy._model.TITLE,
+            "singular": thy.SINGULAR,
+            "plural": thy.PLURAL,
+            "list": thy.LIST
+        })
+
+        if resource.__name__.lower() not in restx.endpoints:
+            restx.add_resource(resource, *Resource.endpoints(thy))

@@ -1,8 +1,13 @@
+import sys
 import time
 import unittest
 
+import flask
+import flask_restx
+
 import relations
 import relations.unittest
+import relations_restx
 
 import relations_unifist
 
@@ -708,3 +713,208 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(self.local.data["item"], {})
+
+
+class ServedModel(relations.Model):
+    SOURCE = "TestUnifistResource"
+
+class Jam(ServedModel):
+    id = int
+    name = str
+
+class Jelly(ServedModel):
+    PLURAL = "jellies"
+    ID = None
+    name = str
+
+class Toast(ServedModel):
+    id = int
+    name = str
+
+class Butter(ServedModel):
+    id = int
+    name = str
+
+class JellyResource(relations_unifist.Resource):
+    MODEL = Jelly
+
+class ToastResource(relations_restx.Resource):
+    MODEL = Toast
+
+
+class TestResource(unittest.TestCase):
+
+    def test_thy(self):
+
+        self.assertEqual(JellyResource.thy().endpoints(), ["/model/jelly"])
+        self.assertEqual(JellyResource.thy().SINGULAR, "jelly")
+
+    def test_endpoints(self):
+
+        class JamResource(relations_unifist.Resource):
+            MODEL = Jam
+
+        self.assertEqual(JamResource.thy().endpoints(), ["/model/jam", "/model/jam/<id>"])
+        self.assertEqual(JellyResource.thy().endpoints(), ["/model/jelly"])
+
+        self.assertEqual(relations_unifist.Resource.endpoints(ToastResource.thy()), ["/model/toast", "/model/toast/<id>"])
+
+
+class TestAttach(relations.unittest.TestCase):
+
+    maxDiff = None
+
+    def setUp(self):
+
+        self.source = relations.unittest.MockSource("TestUnifistResource")
+
+        self.app = flask.Flask("unifist-api")
+        self.restx = relations_restx.Api(self.app)
+
+    def attach(self, **kwargs):
+
+        relations_unifist.attach(
+            self.restx, sys.modules[__name__], relations.models(sys.modules[__name__], ServedModel), **kwargs
+        )
+
+        return self.app.test_client()
+
+    def test_attach(self):
+
+        api = self.attach()
+
+        # The models are listed, and the ones the module didn't have a resource for are made
+
+        response = api.get("/model")
+
+        self.assertStatusValue(response, 200, "models", [
+            {
+                "id": None,
+                "titles": ["name"],
+                "title": "Jelly",
+                "singular": "jelly",
+                "plural": "jellies",
+                "list": ["name"]
+            },
+            {
+                "id": "id",
+                "titles": ["name"],
+                "title": "Toast",
+                "singular": "toast",
+                "plural": "toasts",
+                "list": ["id", "name"]
+            },
+            {
+                "id": "id",
+                "titles": ["name"],
+                "title": "Butter",
+                "singular": "butter",
+                "plural": "butters",
+                "list": ["id", "name"]
+            },
+            {
+                "id": "id",
+                "titles": ["name"],
+                "title": "Jam",
+                "singular": "jam",
+                "plural": "jams",
+                "list": ["id", "name"]
+            }
+        ])
+
+        # Nothing's at the root but what was added there
+
+        self.assertEqual(api.get("/jelly").status_code, 404)
+        self.assertEqual(api.get("/jam").status_code, 404)
+        self.assertEqual(api.get("/butter").status_code, 404)
+        self.assertEqual(api.get("/toast").status_code, 404)
+
+        # A resource of ours, one of relations_restx's and one ensure made, are all under /model
+
+        self.assertStatusValue(api.post("/model/jelly", json={"jelly": {"name": "grape"}}), 201, "jelly", {"name": "grape"})
+        self.assertStatusValue(api.get("/model/jelly"), 200, "jellies", [{"name": "grape"}])
+
+        self.assertStatusValue(api.post("/model/toast", json={"toast": {"name": "rye"}}), 201, "toast", {"id": 1, "name": "rye"})
+        self.assertStatusValue(api.get("/model/toast/1"), 200, "toast", {"id": 1, "name": "rye"})
+
+        self.assertStatusValue(api.post("/model/jam", json={"jam": {"name": "plum"}}), 201, "jam", {"id": 1, "name": "plum"})
+        self.assertStatusValue(api.get("/model/jam/1"), 200, "jam", {"id": 1, "name": "plum"})
+        self.assertStatusValue(api.patch("/model/jam/1", json={"jam": {"name": "fig"}}), 202, "updated", 1)
+        self.assertStatusValue(api.delete("/model/jam/1"), 202, "deleted", 1)
+        self.assertEqual(api.get("/model/jam/1").status_code, 404)
+
+        self.assertEqual(api.options("/model/jam").status_code, 200)
+        self.assertEqual(api.options("/model/jam/1").status_code, 404)
+
+        # A record needs an id to be at one
+
+        self.assertEqual(api.get("/model/jelly/1").status_code, 404)
+
+    def test_attach_placeholders(self):
+
+        api = self.attach()
+
+        # Empty lists, not a 404, until something is registered
+
+        response = api.get("/action")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"actions": []})
+
+        response = api.get("/view")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"views": []})
+
+    def test_attach_actions_views(self):
+
+        actions = [{"name": "bake"}]
+        views = [{"name": "toasted"}]
+
+        api = self.attach(actions=actions, views=views)
+
+        self.assertStatusValue(api.get("/action"), 200, "actions", [{"name": "bake"}])
+        self.assertStatusValue(api.get("/view"), 200, "views", [{"name": "toasted"}])
+
+        # What was given isn't shared with the list served
+
+        actions.append({"name": "burn"})
+        self.assertStatusValue(api.get("/action"), 200, "actions", [{"name": "bake"}])
+
+    def test_attach_endpoints(self):
+
+        # A resource already attached under the name of one ensure would make isn't added again, and is still listed
+
+        self.restx.add_resource(type("Jam", (relations_restx.Resource, ), {"MODEL": Jam}), "/custom")
+
+        api = self.attach()
+
+        self.assertStatusValue(api.post("/custom", json={"jam": {"name": "plum"}}), 201, "jam", {"id": 1, "name": "plum"})
+        self.assertEqual(api.get("/model/jam").status_code, 404)
+        self.assertIn("jam", [model["singular"] for model in api.get("/model").json["models"]])
+
+    def test_open_api(self):
+
+        self.attach()
+
+        paths = self.app.test_client().get("/swagger.json").json["paths"]
+
+        self.assertEqual(sorted(paths), [
+            "/action",
+            "/model",
+            "/model/butter",
+            "/model/butter/{id}",
+            "/model/jam",
+            "/model/jam/{id}",
+            "/model/jelly",
+            "/model/toast",
+            "/model/toast/{id}",
+            "/view"
+        ])
+
+        # The operations are the ones the models get anywhere else
+
+        self.assertEqual(paths["/model/jam"]["get"]["operationId"], "jam_retrieve_many")
+        self.assertEqual(paths["/model/jam"]["post"]["operationId"], "jam_create_search")
+        self.assertEqual(paths["/model/jam/{id}"]["get"]["operationId"], "jam_retrieve_one")
+        self.assertEqual(paths["/model/jam/{id}"]["delete"]["operationId"], "jam_delete_one")
+        self.assertEqual(paths["/model/toast"]["options"]["operationId"], "toast_create_options")
+        self.assertEqual(paths["/model/jelly"]["patch"]["operationId"], "jelly_update_many")
