@@ -183,24 +183,28 @@ class Thing(Base):
 
     id = str
     version = int, 1
+    unum = str
 
 
 class Other(Base):
 
     id = str
     version = int, 1
+    unum = str
 
 
 class Third(Base):
 
     id = str
     version = int, 1
+    unum = str
 
 
 class Page(Base):
 
     id = str
     version = int, 1
+    unum = str
     title = str
 
     SLUG = "title"
@@ -210,6 +214,7 @@ class Person(Base):
 
     id = str
     version = int, 1
+    unum = str
     first = str
     last = str
 
@@ -220,6 +225,7 @@ class Item(Base):
 
     id = str
     version = int, 1
+    unum = str
     name = str
 
 
@@ -227,6 +233,7 @@ class IntId(relations_unifist.UnifistModel):
 
     id = int
     version = int, 1
+    unum = str
 
 
 class NoVersion(relations_unifist.UnifistModel):
@@ -235,10 +242,25 @@ class NoVersion(relations_unifist.UnifistModel):
     title = str
 
 
+class NoUnum(relations_unifist.UnifistModel):
+
+    id = str
+    version = int, 1
+    title = str
+
+
+class IntUnum(relations_unifist.UnifistModel):
+
+    id = str
+    version = int, 1
+    unum = int
+
+
 class BadSlug(relations_unifist.UnifistModel):
 
     id = str
     version = int, 1
+    unum = str
     title = str
 
     SLUG = "nope"
@@ -248,6 +270,7 @@ class BadSlugs(relations_unifist.UnifistModel):
 
     id = str
     version = int, 1
+    unum = str
     title = str
 
     SLUG = ["title", "nope"]
@@ -305,19 +328,25 @@ class TestUnifistModel(unittest.TestCase):
 
     def test___init__(self):
 
-        # Fine with an id string, a version int, and a SLUG that is a field or a list of them
+        # Fine with an id string, a version int, a unum string, and a SLUG that is a field or a list of them
 
         self.assertEqual(Thing().version, 1)
         self.assertEqual(Page(title="Hello").title, "Hello")
         self.assertEqual(Person(first="Gaffer", last="Fitch").last, "Fitch")
 
-        # The id has to be a str and there has to be a version
+        # The id has to be a str and there has to be a version and a unum, a str
 
         with self.assertRaisesRegex(relations.ModelError, "int_id: id has to be a str field"):
             IntId()
 
         with self.assertRaisesRegex(relations.ModelError, "no_version: version has to be an int field"):
             NoVersion()
+
+        with self.assertRaisesRegex(relations.ModelError, "no_unum: unum has to be a str field"):
+            NoUnum()
+
+        with self.assertRaisesRegex(relations.ModelError, "int_unum: unum has to be a str field"):
+            IntUnum()
 
         # A SLUG has to name fields the model has
 
@@ -487,6 +516,40 @@ class TestUnifistModel(unittest.TestCase):
 
         self.assertEqual(Item.one("1:item.local:home").retrieve().name, "c")
 
+    def test_unum(self):
+
+        # A new record has the unum of the id it was given, this unum's for one made here
+
+        item = Item(name="a").create()
+
+        self.assertEqual(item.unum, "home")
+        self.assertEqual(self.local.data["item"]["1:item.local:home"]["unum"], "home")
+
+        # A record made by another unum keeps what it came with, or if that's nothing the unum in its id
+
+        Item(id="9:item.local:away", unum="away", name="b").create(writer="away")
+        Item(id="8:item.local:away", name="c").create(writer="away")
+
+        self.assertEqual(self.local.data["item"]["9:item.local:away"]["unum"], "away")
+        self.assertEqual(self.local.data["item"]["8:item.local:away"]["unum"], "away")
+
+        # A bulk create sets it on every record
+
+        Item.bulk().add(name="e").add(name="f").create()
+
+        self.assertEqual(self.local.data["item"]["2:item.local:home"]["unum"], "home")
+        self.assertEqual(self.local.data["item"]["3:item.local:home"]["unum"], "home")
+
+        # It's a field like any other, so a query can name the unums it's for
+
+        self.assertEqual(sorted(model.id for model in Item.many(unum="away").retrieve()), ["8:item.local:away", "9:item.local:away"])
+        self.assertEqual(
+            sorted(model.id for model in Item.many(unum__in=["home", "away"]).retrieve()),
+            ["1:item.local:home", "2:item.local:home", "3:item.local:home", "8:item.local:away", "9:item.local:away"]
+        )
+        self.assertEqual(Item.many(unum="home").count(), 3)
+        self.assertEqual(Item.many(unum="nowhere").count(), 0)
+
     def test_post(self):
 
         # A create is journaled, by the id, with when in microseconds, and the app (source) and block (model) it was in
@@ -503,7 +566,7 @@ class TestUnifistModel(unittest.TestCase):
             "app": "local",
             "block": "item",
             "id": "1:item.local:home",
-            "after": {"id": "1:item.local:home", "version": 1, "name": "a"}
+            "after": {"id": "1:item.local:home", "version": 1, "unum": "home", "name": "a"}
         })
         self.assertTrue(before <= self.journal()[0]["when"] <= after)
 
@@ -520,8 +583,8 @@ class TestUnifistModel(unittest.TestCase):
             "app": "local",
             "block": "item",
             "id": "1:item.local:home",
-            "before": {"id": "1:item.local:home", "version": 1, "name": "a"},
-            "after": {"id": "1:item.local:home", "version": 2, "name": "b"}
+            "before": {"id": "1:item.local:home", "version": 1, "unum": "home", "name": "a"},
+            "after": {"id": "1:item.local:home", "version": 2, "unum": "home", "name": "b"}
         })
         self.assertTrue(self.journal()[0]["when"] <= self.journal()[1]["when"])
 
@@ -543,7 +606,7 @@ class TestUnifistModel(unittest.TestCase):
             "app": "local",
             "block": "item",
             "id": "1:item.local:home",
-            "before": {"id": "1:item.local:home", "version": 2, "name": "b"}
+            "before": {"id": "1:item.local:home", "version": 2, "unum": "home", "name": "b"}
         })
 
         # A bulk create is journaled one record at a time
@@ -625,8 +688,8 @@ class TestUnifistModel(unittest.TestCase):
             "app": "local",
             "block": "item",
             "id": "2:item.local:home",
-            "before": {"id": "2:item.local:home", "version": 1, "name": "a"},
-            "after": {"id": "2:item.local:home", "version": 2, "name": "z"}
+            "before": {"id": "2:item.local:home", "version": 1, "unum": "home", "name": "a"},
+            "after": {"id": "2:item.local:home", "version": 2, "unum": "home", "name": "z"}
         })
 
         # Nothing matching is nothing done
@@ -681,7 +744,7 @@ class TestUnifistModel(unittest.TestCase):
             "app": "local",
             "block": "item",
             "id": "1:item.local:home",
-            "before": {"id": "1:item.local:home", "version": 1, "name": "a"}
+            "before": {"id": "1:item.local:home", "version": 1, "unum": "home", "name": "a"}
         })
 
         # Nothing matching is nothing done
