@@ -107,7 +107,8 @@ class UnifistModel(relations.Model):
     """
     The base of models whose ids come from a Unifist source, a regular source holding the sequence, slug and
     journal tables. UNIFIST names that source, unifist unless changed, and UNUM names the unum, both set on
-    the app's own base model like SOURCE is, and the app makes its source with that name
+    the app's own base model like SOURCE is, and the app makes its source with that name. A model has the
+    unum of its id as a regular str field, so a query can name the unums it's for
     """
 
     UNIFIST = "unifist"  # Name of the Unifist source, a different source than the app's
@@ -120,7 +121,7 @@ class UnifistModel(relations.Model):
 
     def __init__(self, *args, **kwargs):
         """
-        Checks the model has what ids and versions need, then does what any model does
+        Checks the model has what ids, versions and unums need, then does what any model does
         """
 
         identity = self.thy()
@@ -131,6 +132,9 @@ class UnifistModel(relations.Model):
 
         if "version" not in names or names["version"].kind is not int:
             raise relations.ModelError(identity, "version has to be an int field")
+
+        if "unum" not in names or names["unum"].kind is not str:
+            raise relations.ModelError(identity, "unum has to be a str field")
 
         if self.SLUG is not None:
             for name in self.SLUG if isinstance(self.SLUG, list) else [self.SLUG]:
@@ -295,8 +299,8 @@ class UnifistModel(relations.Model):
 
     def pre(self, action, *args, **kwargs):
         """
-        Gives new records their ids, bumps the version of records that changed, and keeps what post
-        needs to journal
+        Gives new records their ids and the unum in them, bumps the version of records that changed, and keeps
+        what post needs to journal
         """
 
         self._journaling = []
@@ -307,6 +311,9 @@ class UnifistModel(relations.Model):
 
                 if model.id is None:
                     model.id = model.generate_id()
+
+                if model.unum is None:
+                    model.unum = model.id.split(":", 2)[2]
 
                 self._journaling.append((model, None))
 
