@@ -3,6 +3,16 @@
 All notable changes to python-relations-unifist are recorded here, newest first. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-10-23
+
+### Added
+- `relations_policy`, the security policy kept as data, for `relations.security` (relations-dil/python-relations#86, relations-dil/python-relations-unifist#6). `Actor` is who acts (its id is what `acting` is given), `Troupe` a group of them, `Casting(actor, troupe, part)` puts an actor in a troupe in a part, and `Charter` says what a part may do with a verb on a model, in a troupe or any: `allow`, `scope`, `moves`, `becomes`, `pins` and `names`. They are `UnifistModel`s on `PolicyBase`, whose `SOURCE` is `policy` unless changed once, so they have global ids, versions and the journal, and can be routed and synced like any record. They aren't `Secure`, which is how a policy reads its own rules.
+- `relations_policy.Policy`, a `relations.security.Policy` that gives an actor's rule from the most specific `Charter` for the troupes and parts they're cast in: the model first, then the verb (the one asked for, then the one it inherits, then any), then the troupe and part. Charters that tie with different rules are a `Denied`, `$actor` and `$troupes` fill in the scopes, and rules are kept for as long as the actor is acting, with `relations.security.cache()`.
+- The README says how to hold `UnifistModel`s to rules, and how to keep the policy as data.
+
+### Changed
+- Needs relations-dil 0.7.0, which has `relations.security` (`Secure`, `Rule`, `Policy`, `Denied`, `acting`, `system`, `cache`) and `Model.secure`. `requirements.txt` and `setup.py` have it, and `relations_policy` is in `py_modules`.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added
