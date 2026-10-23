@@ -3,6 +3,8 @@
 All notable changes to python-relations-unifist are recorded here, newest first. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.4.0] - 2026-10-23
+
 ## [0.3.0] - 2026-10-22
 
 ### Added
