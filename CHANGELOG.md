@@ -3,6 +3,13 @@
 All notable changes to python-relations-unifist are recorded here, newest first. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+## [0.4.1] - 2026-10-26
+
+### Fixed
+- `unum`, `source` and `model` on `Sequence` and `Slug` are 64 characters, not 255, so their unique keys fit MySQL's 3072 byte limit. `Slug`'s key was 4080 bytes, so `CREATE TABLE` failed with 1071 and left the migration stamped with the schema partial. This needs the dialects that honor a field's length (relations-dil/python-relations-mysql#17, relations-dil/python-relations-postgresql#15, relations-dil/python-relations-sqlite#15), so the tests, which check the table definitions of pymysql, psycopg2 and sqlite3, ask for relations-pymysql 0.6.19, relations-psycopg2 0.6.17 and relations-sqlite3 0.6.13 in `requirements.txt` (relations-dil/python-relations-unifist#13).
+
 ## [0.4.0] - 2026-10-23
 
 ### Added

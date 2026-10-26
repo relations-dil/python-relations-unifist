@@ -63,9 +63,9 @@ class Sequence(UnifistBase):
     """
 
     id = int
-    unum = str, False
-    source = str, False
-    model = str, False
+    unum = str, False, {"length": 64}
+    source = str, False, {"length": 64}
+    model = str, False, {"length": 64}
     current = int, 0
 
     TITLES = ["unum", "source", "model"]
@@ -78,9 +78,9 @@ class Slug(UnifistBase):
     """
 
     id = int
-    unum = str, False
-    source = str, False
-    model = str, False
+    unum = str, False, {"length": 64}
+    source = str, False, {"length": 64}
+    model = str, False, {"length": 64}
     current = str, False
 
     TITLES = ["unum", "source", "model", "current"]

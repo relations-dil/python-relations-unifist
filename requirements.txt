@@ -9,3 +9,6 @@ click==8.1.8
 debugpy==1.8.22
 coverage==7.16.2
 pylint==4.1.3
+relations-pymysql==0.6.19
+relations-psycopg2==0.6.17
+relations-sqlite3==0.6.13
