@@ -111,10 +111,7 @@ class TestSQLite(unittest.TestCase):
 
         self.directory = tempfile.mkdtemp()
 
-        self.source = relations_sqlite3.Source("unifist-sqlite3", os.path.join(self.directory, "main.db"), schemas={
-            "main": "unifist",
-            "unifist": os.path.join(self.directory, "unifist.db")
-        })
+        self.source = relations_sqlite3.Source("unifist-sqlite3", os.path.join(self.directory, "unifist.db"))
 
         for model in MODELS:
             self.source.execute(self.source.define(model.thy().define()))
@@ -133,7 +130,7 @@ class TestSQLite(unittest.TestCase):
             values = {"unum": "u", "source": "s", "model": "m", name: "x" * 64}
 
             cursor.execute(
-                "INSERT INTO `unifist`.`sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
+                "INSERT INTO `sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
                 (values["unum"], values["source"], values["model"])
             )
 
@@ -142,7 +139,7 @@ class TestSQLite(unittest.TestCase):
             self.assertRaises(
                 sqlite3.IntegrityError,
                 cursor.execute,
-                "INSERT INTO `unifist`.`sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
+                "INSERT INTO `sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
                 (values["unum"], values["source"], values["model"])
             )
 
