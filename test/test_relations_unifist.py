@@ -88,6 +88,8 @@ class TestSequence(unittest.TestCase):
         self.assertFalse(fields["unum"]["none"])
         self.assertFalse(fields["source"]["none"])
         self.assertFalse(fields["model"]["none"])
+        for name in ["unum", "source", "model"]:
+            self.assertEqual(fields[name]["length"], 64)
         self.assertEqual(fields["current"]["default"], 0)
 
 
@@ -107,6 +109,9 @@ class TestSlug(unittest.TestCase):
         self.assertEqual(definition["unique"], {"unum-source-model-current": ["unum", "source", "model", "current"]})
         for name in ["unum", "source", "model", "current"]:
             self.assertFalse(fields[name]["none"])
+        for name in ["unum", "source", "model"]:
+            self.assertEqual(fields[name]["length"], 64)
+        self.assertNotIn("length", fields["current"])
 
 
 class TestJournal(unittest.TestCase):
