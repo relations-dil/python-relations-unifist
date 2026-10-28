@@ -34,7 +34,7 @@ class Actor(PolicyBase):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     name = str
 
     SLUG = "name"
@@ -49,7 +49,7 @@ class Troupe(PolicyBase):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     name = str
 
     SLUG = "name"
@@ -64,7 +64,7 @@ class Casting(PolicyBase):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     actor = str
     troupe = str
     part = str
@@ -88,7 +88,7 @@ class Charter(PolicyBase):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     troupe = blank()
     part = blank()
     model = blank()

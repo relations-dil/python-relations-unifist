@@ -3,6 +3,11 @@
 All notable changes to python-relations-unifist are recorded here, newest first. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.5.0] - 2026-10-28
+
+### Changed
+- A record's `unum` field is `home`, the unum that made it and the last part of its id, so no relation to a model called `Unum` can share its name: a query's `unum__in=[...]` on a model with a relation named `unum` was taken as a filter on the relation, not the field, so routing saw a query for every unum and joined unums asked each other for ever. `UnifistModel` checks for a `home` str field, and `UNUM` is `HOME`. `Sequence` and `Slug` have `home` in place of `unum`, so their keys are `home-source-model` and `home-source-model-current`, and so do the policy models. Models and tables with a `unum` field need it renamed, and a database with the `unifist` tables has its `sequence` and `slug` `unum` columns renamed `home` (relations-dil/python-relations-unifist#17).
+
 ## [0.4.1] - 2026-10-26
 
 ### Fixed

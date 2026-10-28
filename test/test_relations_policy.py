@@ -17,7 +17,7 @@ class Doc(Base):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     owner = str
     troupe = str
     title = str
@@ -34,7 +34,7 @@ class TestPolicy(unittest.TestCase):
         self.policy = relations.unittest.MockSource("policy")
         self.app = relations.unittest.MockSource("app")
 
-        relations_unifist.UnifistModel.UNUM = "home"
+        relations_unifist.UnifistModel.HOME = "home"
         relations.security.POLICY = relations_policy.Policy()
 
         with relations.security.system():
@@ -63,7 +63,7 @@ class TestPolicy(unittest.TestCase):
 
     def tearDown(self):
 
-        relations_unifist.UnifistModel.UNUM = None
+        relations_unifist.UnifistModel.HOME = None
         relations.security.POLICY = None
 
         for name in ["unifist", "policy", "app"]:

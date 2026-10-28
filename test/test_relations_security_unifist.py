@@ -16,7 +16,7 @@ class Doc(Base):
 
     id = str
     version = int, 1
-    unum = str
+    home = str
     owner = str
     title = str
     body = str
@@ -50,7 +50,7 @@ class TestSecureUnifist(unittest.TestCase):
         self.unifist = relations.unittest.MockSource("unifist")
         self.local = relations.unittest.MockSource("local")
 
-        relations_unifist.UnifistModel.UNUM = "home"
+        relations_unifist.UnifistModel.HOME = "home"
         relations.security.POLICY = policy()
 
         with relations.security.system():
@@ -64,7 +64,7 @@ class TestSecureUnifist(unittest.TestCase):
 
     def tearDown(self):
 
-        relations_unifist.UnifistModel.UNUM = None
+        relations_unifist.UnifistModel.HOME = None
         relations.security.POLICY = None
 
         del relations.SOURCES["unifist"]
