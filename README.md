@@ -62,7 +62,7 @@ class Doc(relations.security.Secure, relations_unifist.UnifistModel):
     SOURCE = "app"
     id = str
     version = int, 1
-    unum = str
+    home = str
     owner = str
     title = str
     locked = bool, False

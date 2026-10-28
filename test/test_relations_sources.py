@@ -1,6 +1,6 @@
 """
 The keys of the Unifist tables have to fit every source. What limits them is MySQL, where a key can be 3072
-bytes, 4 for each character of utf8mb4, so unum, source and model are 64 characters, not 255
+bytes, 4 for each character of utf8mb4, so home, source and model are 64 characters, not 255
 """
 
 import os
@@ -18,7 +18,7 @@ import relations_unifist
 
 KEY_BYTES = 3072
 CHARACTER_BYTES = 4
-CAPPED = ["unum", "source", "model"]
+CAPPED = ["home", "source", "model"]
 MODELS = [relations_unifist.Sequence, relations_unifist.Slug]
 
 COLUMN = re.compile(r'[`"](\w+)[`"] VARCHAR\((\d+)\)')
@@ -127,11 +127,11 @@ class TestSQLite(unittest.TestCase):
 
         for name in CAPPED:
 
-            values = {"unum": "u", "source": "s", "model": "m", name: "x" * 64}
+            values = {"home": "u", "source": "s", "model": "m", name: "x" * 64}
 
             cursor.execute(
-                "INSERT INTO `sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
-                (values["unum"], values["source"], values["model"])
+                "INSERT INTO `sequence` (`home`, `source`, `model`) VALUES (?, ?, ?)",
+                (values["home"], values["source"], values["model"])
             )
 
             values[name] = "x" * 65
@@ -139,8 +139,8 @@ class TestSQLite(unittest.TestCase):
             self.assertRaises(
                 sqlite3.IntegrityError,
                 cursor.execute,
-                "INSERT INTO `sequence` (`unum`, `source`, `model`) VALUES (?, ?, ?)",
-                (values["unum"], values["source"], values["model"])
+                "INSERT INTO `sequence` (`home`, `source`, `model`) VALUES (?, ?, ?)",
+                (values["home"], values["source"], values["model"])
             )
 
         cursor.close()

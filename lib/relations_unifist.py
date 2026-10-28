@@ -59,32 +59,32 @@ class UnifistBase(relations.Model):
 
 class Sequence(UnifistBase):
     """
-    A counter, one per unum, source and model. Taking n ids moves current up by n
+    A counter, one per home, source and model. Taking n ids moves current up by n
     """
 
     id = int
-    unum = str, False, {"length": 64}
+    home = str, False, {"length": 64}
     source = str, False, {"length": 64}
     model = str, False, {"length": 64}
     current = int, 0
 
-    TITLES = ["unum", "source", "model"]
-    UNIQUE = ["unum", "source", "model"]
+    TITLES = ["home", "source", "model"]
+    UNIQUE = ["home", "source", "model"]
 
 
 class Slug(UnifistBase):
     """
-    A slug that is taken, one row per slug for a unum, source and model
+    A slug that is taken, one row per slug for a home, source and model
     """
 
     id = int
-    unum = str, False, {"length": 64}
+    home = str, False, {"length": 64}
     source = str, False, {"length": 64}
     model = str, False, {"length": 64}
     current = str, False
 
-    TITLES = ["unum", "source", "model", "current"]
-    UNIQUE = ["unum", "source", "model", "current"]
+    TITLES = ["home", "source", "model", "current"]
+    UNIQUE = ["home", "source", "model", "current"]
 
 
 class Journal(UnifistBase):
@@ -106,13 +106,14 @@ class Journal(UnifistBase):
 class UnifistModel(relations.Model):
     """
     The base of models whose ids come from a Unifist source, a regular source holding the sequence, slug and
-    journal tables. UNIFIST names that source, unifist unless changed, and UNUM names the unum, both set on
-    the app's own base model like SOURCE is, and the app makes its source with that name. A model has the
-    unum of its id as a regular str field, so a query can name the unums it's for
+    journal tables. UNIFIST names that source, unifist unless changed, and HOME names the unum the records are
+    at home in, this one, both set on the app's own base model like SOURCE is, and the app makes its source with
+    that name. A model has the home of its id, the unum that made the record, as a regular str field, so a
+    query can name the homes it's for
     """
 
     UNIFIST = "unifist"  # Name of the Unifist source, a different source than the app's
-    UNUM = None     # Name of the unum
+    HOME = None     # Name of the unum records are at home in, this one
     SLUG = None     # Whether to use other fields for id
     JOURNAL = True  # Whether or not to Journal
 
@@ -121,7 +122,7 @@ class UnifistModel(relations.Model):
 
     def __init__(self, *args, **kwargs):
         """
-        Checks the model has what ids, versions and unums need, then does what any model does
+        Checks the model has what ids, versions and homes need, then does what any model does
         """
 
         identity = self.thy()
@@ -133,8 +134,8 @@ class UnifistModel(relations.Model):
         if "version" not in names or names["version"].kind is not int:
             raise relations.ModelError(identity, "version has to be an int field")
 
-        if "unum" not in names or names["unum"].kind is not str:
-            raise relations.ModelError(identity, "unum has to be a str field")
+        if "home" not in names or names["home"].kind is not str:
+            raise relations.ModelError(identity, "home has to be a str field")
 
         if self.SLUG is not None:
             for name in self.SLUG if isinstance(self.SLUG, list) else [self.SLUG]:
@@ -145,7 +146,7 @@ class UnifistModel(relations.Model):
 
     def generate_id(self):
         """
-        Makes the id for a new record: current:model.source:unum. Without a SLUG the current is the next
+        Makes the id for a new record: current:model.source:home. Without a SLUG the current is the next
         number from the Sequence, which moves up only where it still holds what was just read, so nothing is
         given out twice, and is inserted the first time. With a SLUG the current is the slug of the field, or
         the list of fields, tried in the Slug table, with -1, -2 and so on added until one isn't taken. Either
@@ -158,7 +159,7 @@ class UnifistModel(relations.Model):
 
             while True:
 
-                found = Sequence.one(unum=self.UNUM, source=self.SOURCE, model=self.NAME).retrieve(False)
+                found = Sequence.one(home=self.HOME, source=self.SOURCE, model=self.NAME).retrieve(False)
 
                 if not found:
 
@@ -166,7 +167,7 @@ class UnifistModel(relations.Model):
 
                     try:
 
-                        Sequence(unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=current).create()
+                        Sequence(home=self.HOME, source=self.SOURCE, model=self.NAME, current=current).create()
                         break
 
                     except relations.UniqueError:
@@ -175,7 +176,7 @@ class UnifistModel(relations.Model):
                 current = found.current + 1
 
                 if Sequence.many(
-                    unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=found.current
+                    home=self.HOME, source=self.SOURCE, model=self.NAME, current=found.current
                 ).set(
                     current=current
                 ).update():
@@ -192,7 +193,7 @@ class UnifistModel(relations.Model):
 
                 try:
                     current = Slug(
-                        unum=self.UNUM, source=self.SOURCE, model=self.NAME, current=current
+                        home=self.HOME, source=self.SOURCE, model=self.NAME, current=current
                     ).create().current
                     break
                 except relations.UniqueError:
@@ -200,7 +201,7 @@ class UnifistModel(relations.Model):
                     current = f"{slug}-{tries}"
                     continue
 
-        return f"{current}:{self.NAME}.{self.SOURCE}:{self.UNUM}"
+        return f"{current}:{self.NAME}.{self.SOURCE}:{self.HOME}"
 
     def journal(self, action, model, before=None):
         """
@@ -231,7 +232,7 @@ class UnifistModel(relations.Model):
             what["before"] = before
 
         Journal(
-            id=f"{version}:{identifier}:{resource}:{owner}:{self._writer or self.UNUM}",
+            id=f"{version}:{identifier}:{resource}:{owner}:{self._writer or self.HOME}",
             resource_id=model.id,
             what=what
         ).create()
@@ -299,7 +300,7 @@ class UnifistModel(relations.Model):
 
     def pre(self, action, *args, **kwargs):
         """
-        Gives new records their ids and the unum in them, bumps the version of records that changed, and keeps
+        Gives new records their ids and the home in them, bumps the version of records that changed, and keeps
         what post needs to journal
         """
 
@@ -312,8 +313,8 @@ class UnifistModel(relations.Model):
                 if model.id is None:
                     model.id = model.generate_id()
 
-                if model.unum is None:
-                    model.unum = model.id.split(":", 2)[2]
+                if model.home is None:
+                    model.home = model.id.split(":", 2)[2]
 
                 self._journaling.append((model, None))
 
