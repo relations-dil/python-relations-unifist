@@ -3,6 +3,11 @@
 All notable changes to python-relations-unifist are recorded here, newest first. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.6.0] - 2026-10-29
+
+### Changed
+- A `UnifistModel` with a `SLUG` and no `TITLES` of its own is titled by the `SLUG` fields and then `home`, so a record is called by its name and where it is from, and not by its whole id, which is what a model with a supplied id is titled by. A `SLUG` that is a list titles by all its fields. A model that sets `TITLES` keeps them, a model with no `SLUG` is as before, and a `SLUG` naming a field the model does not have is left for `__init__` to say so. Only the titles change: for a model with a supplied id core defaults `UNIQUE` to none, so no table changes and no migration is needed (relations-dil/python-relations-unifist#16).
+
 ## [0.5.0] - 2026-10-28
 
 ### Changed

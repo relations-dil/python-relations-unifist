@@ -120,6 +120,22 @@ class UnifistModel(relations.Model):
     _journaling = None  # What pre keeps for post to journal
     _writer = None      # The unum writing, if on behalf of another, kept for post
 
+    def __init_subclass__(cls, **kwargs):
+        """
+        A model with a SLUG and no TITLES of its own is titled by the SLUG fields and then the home, so a record is
+        called by its name and where it's from, not by its whole id, which is what a supplied id is titled by. That
+        changes only the titles: the unique indexes of a model with a supplied id default to none, so no table changes
+        """
+
+        super().__init_subclass__(**kwargs)
+
+        slugs = cls.SLUG if isinstance(cls.SLUG, list) else [cls.SLUG]
+
+        # A SLUG naming a field the model doesn't have is left for __init__ to say so, which says it better
+
+        if cls.TITLES is None and cls.SLUG is not None and all(slug in vars(cls) for slug in slugs):
+            cls.TITLES = [*slugs, "home"]
+
     def __init__(self, *args, **kwargs):
         """
         Checks the model has what ids, versions and homes need, then does what any model does
