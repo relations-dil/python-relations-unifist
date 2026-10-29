@@ -226,6 +226,17 @@ class Person(Base):
     SLUG = ["first", "last"]
 
 
+class Named(Base):
+
+    id = str
+    version = int, 1
+    home = str
+    title = str
+
+    SLUG = "title"
+    TITLES = ["title"]
+
+
 class Item(Base):
 
     id = str
@@ -330,6 +341,34 @@ class TestUnifistModel(unittest.TestCase):
         self.assertEqual(Page.SLUG, "title")
         self.assertIsNone(Thing.SLUG)
         self.assertIsNone(relations_unifist.UnifistModel.SLUG)
+
+    def test___init_subclass__(self):
+
+        # A model with a SLUG and no TITLES of its own is titled by the SLUG fields and then the home, so a record is called by
+        # its name and where it's from, not by its whole id
+
+        self.assertEqual(Page.TITLES, ["title", "home"])
+        self.assertEqual(Person.TITLES, ["first", "last", "home"])
+        self.assertEqual(Page.thy()._titles, ["title", "home"])
+        self.assertEqual(Person.thy()._titles, ["first", "last", "home"])
+
+        # That is only the titles: no unique index comes with them, as the SLUG is unique in the id and the key already
+
+        self.assertEqual(Page.thy()._unique, {})
+        self.assertEqual(Person.thy()._unique, {})
+
+        # A TITLES the model sets is its own, and a model with no SLUG is titled as any model with a supplied id is, by its id
+
+        self.assertEqual(Named.TITLES, ["title"])
+        self.assertEqual(Named.thy()._titles, ["title"])
+        self.assertIsNone(Thing.TITLES)
+        self.assertEqual(Thing.thy()._titles, ["id"])
+        self.assertIsNone(relations_unifist.UnifistModel.TITLES)
+
+        # A SLUG naming a field the model doesn't have is left alone, for __init__ to say so
+
+        self.assertIsNone(BadSlug.TITLES)
+        self.assertIsNone(BadSlugs.TITLES)
 
     def test___init__(self):
 
